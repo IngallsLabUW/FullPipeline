@@ -82,12 +82,12 @@ IdentifyDuplicates <- function(df) {
   #
   if ("Column" %in% colnames(df)) {
     duplicates <- df %>%
-      group_by(Metabolite.Name, Replicate.Name) %>%
+      group_by(Precursor.Ion.Name, Replicate.Name) %>%
       mutate(number = 1) %>%
       mutate(ticker = cumsum(number)) %>%
       filter(ticker == 2) %>%
       ungroup() %>%
-      select(Metabolite.Name) %>%
+      select(Precursor.Ion.Name) %>%
       unique()
     print("HILIC duplicates table created.")
     

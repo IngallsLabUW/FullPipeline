@@ -1,7 +1,7 @@
 Add working function for specific compound checks (lines ~121)
 Why the specific mz of noise_mz <- 123.04054? And why the syntax/mz of split_mz <- 83.037114+1.007276?
 Add working function for specific pooled msdata checks (lines ~185)
-Read more about Rt corrections
+Read more about RT corrections
 What does the 3 groups when bw < 12, 1 group if bw >12 mean?
 Addiso envelopes doesn't seem to be defined.
 Addiso peaks also not defined.
@@ -28,64 +28,43 @@ source("targeted_functions.R")
 source("untargeted_functions.R")
 ```
 
-Start by acquiring all files. The untargeted analysis requires processing in R before it can be "combined" with the targetd analysis. The two pipelines come together on line *INSERT LINE NUMBER HERE OR JUMP TO CORRECT SECTION*.
-```{r Pattern matching, include = TRUE}
-### Choose software pattern ###
-# MSDial
-#software.pattern <- "MSDial"
+```{r, make_folders, include=TRUE}
 
-## Skyline
-software.pattern <- "Skyline"
+# Run information
+file_pattern <- "meso"
+instrument_pattern <- "TQS"
+targ_software_pattern <- "Skyline"
+polarity <- "positive"
+column <- "HILIC"
 
-####################################
-
-### Choose instrument pattern ###
-# QE
-# instrument.pattern <- "QE"
-
-# TQS
-instrument.pattern <- "TQS"
-
-####################################
-
-### Create file pattern ###
-# file.pattern <- "Vitamins"
-file.pattern <- "MESO"
-
-####################################
-
-### Choose matching pattern ###
-# Cyano 
-#matching.pattern <- "RP.Cyano"
-
-# HILIC
-matching.pattern <- "pos|neg"
-
-print(paste("Your software type is:", software.pattern))
-print(paste("The instrument used in this run is:", instrument.pattern))
-print(paste("Your file matching pattern is:", file.pattern))
-print(paste("Your run type is:", matching.pattern))
-```
-
-
-```{r Imports, include = TRUE}
-source("src/File_Import.R")
-
-print("Required files imported.")
-```
-
-*Untargeted*
-This will be .mzML files containing all raw data. You will also need a cruise metadata sheet in the layout given in the chunks below.
-
-
-```{r untargeted files, include=TRUE}
-polarity <- "pos"
 cruise <- "mesocenter"
 output_folder <- paste0(c(cruise, polarity, "output/"), collapse = "_")
 mzml_path <- paste0("../untargeted/mzMLs/", polarity, "/")
 
+
 # Create folder if it doesn't already exist
-if(!dir.exists(output_folder)){dir.create(output_folder)}
+if(!dir.exists(output_folder)) {dir.create(output_folder)}
+```
+
+Start by acquiring all files. 
+Targeted
+```{r targeted_files, include = TRUE}
+
+
+source("../Targeted_Pipeline/src/File_Import.R")
+```
+
+```{r Dataset rearrangement, include = TRUE}
+## Skyline HILIC variables: 
+skyline.HILIC.neg <- X181116_HILIC_neg_MESO.SCOPE_HRM
+skyline.HILIC.pos <- X181116_HILIC_pos_MESO.SCOPE_HRM
+
+source("../Targeted_Pipeline/src/Skyline_Rearrange.R")
+```
+
+
+Untargeted
+```{r untargeted_files, include=TRUE}
 
 # Load required standards data, clean
 given_stans <- read.csv("../untargeted/metadata/clean_stans.csv")
@@ -104,20 +83,6 @@ ms_files <- cruise_metadata$filename
 BiocParallel::register(BPPARAM = BiocParallel::SnowParam(tasks = length(ms_files), progressbar = TRUE))
 ```
 
-```{r targeted_files, include=TRUE}}
-processed.folder <- "data_processed" 
-intermediate.folder <- "data_intermediate"
-extras.folder <- "data_extras"
-raw.folder <- "data_raw"
-figures.folder <- "figures"
-
-dir.create(file.path(".", processed.folder))  
-dir.create(file.path(".", intermediate.folder))  
-dir.create(file.path(".", extras.folder))
-dir.create(file.path(".", raw.folder))
-dir.create(file.path(".", figures.folder))  
-```
-
 ## Peakpicking
 
 Select peaks using XCMS's centWave peakpicking.
@@ -125,7 +90,7 @@ Calculate improved signal to noise.
 Calculate normality (Gaussian-ness).
 Return list of paths to .mzML and large df full of peaks.
 
-```{r peakpicking, error=TRUE}
+```{r peakpicking params, error=TRUE}
 # Define the peakpicking parameters
 cwp <- CentWaveParam(ppm = 2.5, peakwidth = c(15, 15), 
                      snthresh = 1, prefilter = c(5, 10000), 
@@ -148,7 +113,10 @@ pdp <- PeakDensityParam(sampleGroups = cruise_metadata$depth,
 
 # Make sure that filled peaks have at least a 2.5ppm window from mzmin to mzmax around mz
 fpp <- FillChromPeaksParam(ppm = 2.5)
+```
 
+Do actual peakpicking
+```{r peakpicking, include=TRUE}
 
 # Perform peakpicking
 source("../untargeted/scripts/peakpicking.R")
@@ -163,8 +131,49 @@ write.csv(raw_peaks, file = paste0(output_folder, "raw_peaks.csv"), row.names = 
 unique(warnings())
 ```
 
+Targeted Quality Control
+```{r QC parameters, include = TRUE}
+# QE + TQS QC parameters
+area.min   <- 1000 # HILIC - 1000, Cyano - 5000
+RT.flex    <- 0.4 # HILIC +/- 0.4 min, Cyano +/- 0.2 min 
+blk.thresh <- 0.3 # HILIC +/- 0.3, Cyano +/- 0.2
+SN.min     <- 4 # HILIC - 4, Cyano - 4
+height.min <- 1000
+height.max <- 1.0e8
 
-Isolate and correct the pooled data.
+# Additional QC parameters for Skyline TQS 
+# Comment this out when using MSDial
+area.max <- 1.0e8
+IR.flex  <- 0.3
+ppm.flex <- 7
+
+source("src/Skyline_QC.R")  
+```
+
+Save any required output here to an intermediate folder
+```{r, include = TRUE}
+currentDate <- Sys.Date()
+csvFileName <- paste("data_processed/", software.pattern, "_", instrument.pattern,
+                     "_QC_Output_", file.pattern, "_", currentDate, ".csv", sep = "")
+
+tables <- grep("table", names(.GlobalEnv), value = TRUE, ignore.case = TRUE)
+tablelist <- do.call("list", mget(tables))
+
+# Write intermediate data
+invisible(lapply(tables, 
+                 function(x) write.csv(get(x), file=paste("data_intermediate/",
+                                                            software.pattern, "_",
+                                                          instrument.pattern,
+                                                            "_", x, "_", currentDate,
+                                                          ".csv", sep = ""))))
+# Write final data
+write.csv(final.table, csvFileName, row.names = FALSE)
+
+print(paste(tables, "saved to data/intermediate"))
+```
+
+
+Isolate and correct the Untargeted pooled data.
 ```{r pooled_msdata}
 xdata_filled <- readRDS(file = paste0(output_folder, "xdata_filled.rds"))
 
@@ -313,7 +322,7 @@ plotChromPeakDensity(grp_chr, col=hcl(c(120, 240, 360))[factor(chr_sampleGroups)
 ## De-isotoping and de-adducting
 
 After peaks have been identified, remove the isotopes and adducts of other peaks.
-```{r deisoadduct, error=TRUE}
+```{r deisoadduct params, error=TRUE}
 raw_peaks <- read.csv(file = paste0(output_folder, "raw_peaks.csv"))
 
 not_addisos <- list("Glutamine"=c(mz=147.076968, rt=620),
@@ -337,13 +346,14 @@ area_remove_threshold <- 0.99
 shape_find_threshold <- 0.75
 # How good does the peak area ~ adduct area correlation across files need to be to assume adduct?
 area_find_threshold <- 0.9
+```
 
+```{r deistope, include=TRUE}
 source("../untargeted/scripts/deisoadduct.R")
 
 # Save intermediate files
 saveRDS(is_peak_iso, file = paste0(output_folder, "is_peak_iso.rds"))
 saveRDS(peak_envelopes, file = paste0(output_folder, "peak_envelopes.rds"))
-
 
 # Write out data frame containing features that are likely adducts and isotopes
 write.csv(addiso_features, file = paste0(output_folder, "addiso_features.csv"), row.names = FALSE)
@@ -388,7 +398,7 @@ grabMSdata(files = "../untargeted/mzMLs/pos/180821_Smp_MS7C115m_B.mzML", grab_wh
 ```
 
 
-## Annotate standards
+## Annotate standards, untargeted
 ```{r targeted}
 filled_peaks <- read.csv(paste0(output_folder, "filled_peaks.csv"))
 given_stans <- read.csv("../untargeted/metadata/clean_stans.csv") %>% 
@@ -405,7 +415,57 @@ write.csv(stan_annotations, paste0(output_folder, "stan_annotations.csv"),
           row.names = FALSE)
 ```
 
-## Finding B-MISs
+## Here, should we run phobos for targeted information?
+
+## B-MIS, Targeted
+```{r BMIS cutoff values, include = TRUE}
+cut.off <- 0.4 
+cut.off2 <- 0.1 
+
+print("B-MIS Cutoff values assigned.")
+
+# Skyline
+software.pattern <- "Skyline"
+
+# HILIC Skyline
+Column.Type = "HILIC"
+standards.pattern = "Ingalls"
+QC.pattern = "QC_Output_HILIC"
+```
+
+Import required files.
+```{r BMIS imports, include=TRUE}
+source("src/BMIS_Imports.R")
+```
+
+If data is HILIC, identify duplicates and decide which to remove 
+IdentifyDuplicates function will confirm if instrument column data exists.
+User will need to use best judgement to decide which duplicate to remove.
+```{r Check duplicates, include=TRUE}
+source("src/Check_Duplicates.R")
+currentDate = Sys.Date()
+csvFileName <- paste("data_intermediate/", software.pattern, 
+                     "_HILIC.duplicates_", currentDate, ".csv", sep = "")
+
+# Using the duplicates.testing table, decide which detected compound to keep, the positive or negative.
+
+if (exists("duplicates.testing") == TRUE) {
+  print("This is a HILIC run. Look at duplicates.testing to decide which compounds to remove.")
+} else {
+  print("Non-HILIC data: no duplicates to remove.")
+}
+
+```
+
+Here we sometimes remove any duplicates. 
+
+Run BMIS.
+```{r BMIS, include=TRUE}
+source("src/BMIS.R")
+```
+
+
+## Finding B-MIS, Untargeted
 ```{r B-MIS}
 filled_peaks <- read.csv(paste0(output_folder, "filled_peaks.csv"))
 stan_annotations <- read.csv(paste0(output_folder, "stan_annotations.csv"))
