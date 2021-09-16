@@ -1,12 +1,17 @@
-Add working function for specific compound checks (lines ~121)
-Why the specific mz of noise_mz <- 123.04054? And why the syntax/mz of split_mz <- 83.037114+1.007276?
-Add working function for specific pooled msdata checks (lines ~185)
-Read more about RT corrections
-What does the 3 groups when bw < 12, 1 group if bw >12 mean?
+---
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+Add working function for specific compound checks (lines \~121) Why the specific mz of noise_mz \<- 123.04054?
+And why the syntax/mz of split_mz \<- 83.037114+1.007276?
+Add working function for specific pooled msdata checks (lines \~185) Read more about RT corrections What does the 3 groups when bw \< 12, 1 group if bw \>12 mean?
 Addiso envelopes doesn't seem to be defined.
 Addiso peaks also not defined.
 BMIS plotting spotty because of missing columns.
-As far as I can tell, Sirius (in this setup) doesn't like running on Macs. I will investigate this later.
+As far as I can tell, Sirius (in this setup) doesn't like running on Macs.
+I will investigate this later.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, error = TRUE)
@@ -21,6 +26,7 @@ library(tidyr)
 library(tidyverse)
 library(xcms)
 
+
 options(scipen=999)
 currentDate <- Sys.Date()
 
@@ -28,43 +34,45 @@ source("targeted_functions.R")
 source("untargeted_functions.R")
 ```
 
-```{r, make_folders, include=TRUE}
+Create folders for data.
+
+```{r make_folders, include=TRUE}
 
 # Run information
 file_pattern <- "meso"
 instrument_pattern <- "TQS"
 targ_software_pattern <- "Skyline"
-polarity <- "positive"
+polarity <- "pos"
 column <- "HILIC"
-
 cruise <- "mesocenter"
+
 output_folder <- paste0(c(cruise, polarity, "output/"), collapse = "_")
 mzml_path <- paste0("../untargeted/mzMLs/", polarity, "/")
-
 
 # Create folder if it doesn't already exist
 if(!dir.exists(output_folder)) {dir.create(output_folder)}
 ```
 
-Start by acquiring all files. 
+Start by acquiring all files.
 Targeted
-```{r targeted_files, include = TRUE}
 
-
-source("../Targeted_Pipeline/src/File_Import.R")
+```{r import_targ_files, include = TRUE}
+source("src/targ_File_Import.R")
 ```
 
-```{r Dataset rearrangement, include = TRUE}
-## Skyline HILIC variables: 
-skyline.HILIC.neg <- X181116_HILIC_neg_MESO.SCOPE_HRM
-skyline.HILIC.pos <- X181116_HILIC_pos_MESO.SCOPE_HRM
+Rearrange required files for analysis.
 
-source("../Targeted_Pipeline/src/Skyline_Rearrange.R")
+```{r rearrange_targ_datasets, include = TRUE}
+skyline_HILIC_neg <- X181116_HILIC_neg_MESO.SCOPE_HRM
+skyline_HILIC_pos <- X181116_HILIC_pos_MESO.SCOPE_HRM
+
+source("src/targ_Skyline_Rearrange.R")
+write.csv(skyline_classes_changed, file = paste0(output_folder, "targ_clean.csv"), row.names = FALSE)
 ```
 
+Load files required for untargeted peakpicking.
 
-Untargeted
-```{r untargeted_files, include=TRUE}
+```{r untarg_extras, include=TRUE}
 
 # Load required standards data, clean
 given_stans <- read.csv("../untargeted/metadata/clean_stans.csv")
@@ -80,7 +88,7 @@ run_date <- cruise_metadata %>%
 
 ms_files <- cruise_metadata$filename
 
-BiocParallel::register(BPPARAM = BiocParallel::SnowParam(tasks = length(ms_files), progressbar = TRUE))
+#BiocParallel::register(BPPARAM = BiocParallel::SnowParam(tasks = length(ms_files), progressbar = TRUE))
 ```
 
 ## Peakpicking
@@ -116,6 +124,7 @@ fpp <- FillChromPeaksParam(ppm = 2.5)
 ```
 
 Do actual peakpicking
+
 ```{r peakpicking, include=TRUE}
 
 # Perform peakpicking
@@ -132,6 +141,7 @@ unique(warnings())
 ```
 
 Targeted Quality Control
+
 ```{r QC parameters, include = TRUE}
 # QE + TQS QC parameters
 area.min   <- 1000 # HILIC - 1000, Cyano - 5000
@@ -140,40 +150,36 @@ blk.thresh <- 0.3 # HILIC +/- 0.3, Cyano +/- 0.2
 SN.min     <- 4 # HILIC - 4, Cyano - 4
 height.min <- 1000
 height.max <- 1.0e8
-
-# Additional QC parameters for Skyline TQS 
-# Comment this out when using MSDial
 area.max <- 1.0e8
 IR.flex  <- 0.3
 ppm.flex <- 7
 
-source("src/Skyline_QC.R")  
+source("src/targ_Skyline_QC.R")
 ```
 
 Save any required output here to an intermediate folder
+
 ```{r, include = TRUE}
 currentDate <- Sys.Date()
-csvFileName <- paste("data_processed/", software.pattern, "_", instrument.pattern,
-                     "_QC_Output_", file.pattern, "_", currentDate, ".csv", sep = "")
-
+csvFileName <- paste("mesocenter_pos_output/", column, "_", instrument_pattern,
+                     "_QC_Output_", file_pattern, "_", currentDate, ".csv", sep = "")
+# Write intermediate data here, see original QC.
 tables <- grep("table", names(.GlobalEnv), value = TRUE, ignore.case = TRUE)
 tablelist <- do.call("list", mget(tables))
 
-# Write intermediate data
+
 invisible(lapply(tables, 
-                 function(x) write.csv(get(x), file=paste("data_intermediate/",
-                                                            software.pattern, "_",
-                                                          instrument.pattern,
-                                                            "_", x, "_", currentDate,
+                 function(x) write.csv(get(x), file=paste("mesocenter_pos_output/",
+                                                          column, "_",
+                                                          instrument_pattern,
+                                                          "_", x, "_", currentDate,
                                                           ".csv", sep = ""))))
 # Write final data
-write.csv(final.table, csvFileName, row.names = FALSE)
-
-print(paste(tables, "saved to data/intermediate"))
+write.csv(final_table, csvFileName, row.names = FALSE)
 ```
 
+Correct retention times using pooled data.
 
-Isolate and correct the Untargeted pooled data.
 ```{r pooled_msdata}
 xdata_filled <- readRDS(file = paste0(output_folder, "xdata_filled.rds"))
 
@@ -197,12 +203,13 @@ saveRDS(pooled_msdata, file = paste0(output_folder, "pooled_msdata_", polarity, 
 ```
 
 Check for specific peaks here.
+
 ```{r peakpickcheck}
 # Read in raw data
 xdata_filled <- readRDS(file = paste0(output_folder, "xdata_filled.rds"))
 pooled_msdata <- readRDS(paste0(output_folder, "pooled_msdata_", polarity, ".rds"))
 
-# Check on number of peaks picked for Alanine (or other specific compounds)
+# Check on number of peaks picked for Alanine (or other specific compounds, noisemz, splitmz.
 ala_mz <- given_stans %>% filter(compound_name=="L-Alanine") %>% pull(mz)
 featureDefinitions(xdata_filled) %>%
   as.data.frame() %>%
@@ -212,33 +219,12 @@ featureDefinitions(xdata_filled) %>%
   geom_vline(aes(xintercept = rtmax), color="red") +
   geom_line(aes(x=rt_cor, y=int, group=filename), 
             data = pooled_msdata$MS1[mz%between%pmppm(ala_mz)])
-
-# Number of peaks picked for noise
-noise_mz <- 123.04054
-featureDefinitions(xdata_filled) %>%
-  as.data.frame() %>%
-  filter(mzmed%between%pmppm(noise_mz, 10)) %>%
-  ggplot() + 
-  geom_vline(aes(xintercept = rtmin), color="green") +
-  geom_vline(aes(xintercept = rtmax), color="red") +
-  geom_line(aes(x=rt_cor, y=int, group=filename), 
-            data = pooled_msdata$MS1[mz%between%pmppm(noise_mz)])
-
-# Check on npeaks for unknown split peak
-split_mz <- 83.037114+1.007276
-featureDefinitions(xdata_filled) %>%
-  as.data.frame() %>%
-  filter(mzmed%between%pmppm(split_mz, 10)) %>%
-  ggplot() + 
-  geom_vline(aes(xintercept = rtmin), color="green") +
-  geom_vline(aes(xintercept = rtmax), color="red") +
-  geom_line(aes(x=rt_cor, y=int, group=filename), 
-            data = pooled_msdata$MS1[mz%between%pmppm(split_mz, 10)])
 ```
 
 Check the retention times and perform corrections.
+
 ```{r rtcheck}
-cairo_pdf(filename = paste0(output_folder, "rt_cor_plot.pdf"))
+#cairo_pdf(filename = paste0(output_folder, "rt_cor_plot.pdf"))
 plotAdjustedRtime(xdata_filled, col = hcl.colors(length(unique(cruise_metadata$depth)), alpha = 0.2)[
   factor(cruise_metadata$depth)])
 legend("bottomleft", legend = unique(cruise_metadata$depth), 
@@ -257,7 +243,7 @@ internal_stans %>%
   pmap_dfr(function(...){
     row_data <- tibble(...)
     filter(groupdata, mzmed%between%pmppm(row_data$mz, 10)) %>% 
-      mutate(compound_name = row_data$compound_name)
+      mutate(compound_name = row_data$compound_name) #%>%
       #cbind(row_data$compound_name, .) # This is the original code: it adds IS name and checks that an IS       was found. The error is a handling exceptions for when nothing is there.
   }) %>%
   as_tibble()
@@ -288,6 +274,7 @@ pooled_msdata$MS1[mz%between%pmppm(93.07429, 10)] %>%
 ```
 
 Grouped retention time correction checks
+
 ```{r groupcheck}
 pooled_file_idxs <- grep("Poo", fileNames(xdata_filled))
 xdata_pooled <- filterFile(xdata_filled, pooled_file_idxs)
@@ -322,6 +309,7 @@ plotChromPeakDensity(grp_chr, col=hcl(c(120, 240, 360))[factor(chr_sampleGroups)
 ## De-isotoping and de-adducting
 
 After peaks have been identified, remove the isotopes and adducts of other peaks.
+
 ```{r deisoadduct params, error=TRUE}
 raw_peaks <- read.csv(file = paste0(output_folder, "raw_peaks.csv"))
 
@@ -397,8 +385,8 @@ grabMSdata(files = "../untargeted/mzMLs/pos/180821_Smp_MS7C115m_B.mzML", grab_wh
   facet_wrap(~filename, ncol = 1) + xlim(c(9.5, 10.5))
 ```
 
-
 ## Annotate standards, untargeted
+
 ```{r targeted}
 filled_peaks <- read.csv(paste0(output_folder, "filled_peaks.csv"))
 given_stans <- read.csv("../untargeted/metadata/clean_stans.csv") %>% 
@@ -414,10 +402,10 @@ source("../untargeted/scripts/standard_assignments.R")
 write.csv(stan_annotations, paste0(output_folder, "stan_annotations.csv"), 
           row.names = FALSE)
 ```
-
-## Here, should we run phobos for targeted information?
+Potentially include phobos or IDing here?
 
 ## B-MIS, Targeted
+
 ```{r BMIS cutoff values, include = TRUE}
 cut.off <- 0.4 
 cut.off2 <- 0.1 
@@ -425,47 +413,31 @@ cut.off2 <- 0.1
 print("B-MIS Cutoff values assigned.")
 
 # Skyline
-software.pattern <- "Skyline"
+targ_software_pattern <- "Skyline"
 
 # HILIC Skyline
-Column.Type = "HILIC"
-standards.pattern = "Ingalls"
-QC.pattern = "QC_Output_HILIC"
+standards_pattern = "Ingalls"
+QC_pattern = "QC_Output"
 ```
 
 Import required files.
 ```{r BMIS imports, include=TRUE}
-source("src/BMIS_Imports.R")
+## WE ARE MISSING THE SAMPLE KEY
+source("src/targ_BMIS_Imports.R")
 ```
 
-If data is HILIC, identify duplicates and decide which to remove 
-IdentifyDuplicates function will confirm if instrument column data exists.
-User will need to use best judgement to decide which duplicate to remove.
-```{r Check duplicates, include=TRUE}
-source("src/Check_Duplicates.R")
-currentDate = Sys.Date()
-csvFileName <- paste("data_intermediate/", software.pattern, 
-                     "_HILIC.duplicates_", currentDate, ".csv", sep = "")
+Usually this is where we test and remove any duplicates. See original QC.
 
-# Using the duplicates.testing table, decide which detected compound to keep, the positive or negative.
+Run targeted BMIS.
 
-if (exists("duplicates.testing") == TRUE) {
-  print("This is a HILIC run. Look at duplicates.testing to decide which compounds to remove.")
-} else {
-  print("Non-HILIC data: no duplicates to remove.")
-}
-
-```
-
-Here we sometimes remove any duplicates. 
-
-Run BMIS.
 ```{r BMIS, include=TRUE}
-source("src/BMIS.R")
-```
+## Here we would usually run BMIS but we are missing the sample key so have made a temporary replacement that doesn't really work.
 
+source("src/targ_BMIS.R")
+```
 
 ## Finding B-MIS, Untargeted
+
 ```{r B-MIS}
 filled_peaks <- read.csv(paste0(output_folder, "filled_peaks.csv"))
 stan_annotations <- read.csv(paste0(output_folder, "stan_annotations.csv"))
@@ -484,6 +456,7 @@ write.csv(chosen_BMIS, file = paste0(output_folder, "chosen_BMIS.csv"),
 ```
 
 Check for untargeted BMIS run
+
 ```{r bmischeck}
 IS_peaks <- read.csv(paste0(output_folder, "IS_peaks.csv"))
 
@@ -506,43 +479,68 @@ ggsave(plot = IS_areas_gp, filename = paste0(output_folder, "IS_areas.pdf"),
 
 
 # Create BMIS plot for IS with pooled samps vs all samps
-IS_pooled_cvs <- IS_peaks %>% 
-  filter(str_detect(filename, "_Poo_")) %>%
-  select(stan, M_area, filename) %>%
-  {full_join(., ., by=c("filename"))} %>%
-  group_by(stan.x, stan.y) %>%
-  mutate(M_area_normed=(M_area.x/M_area.y)*mean(M_area.y)) %>%
-  summarise(calc_cv=cv(M_area_normed)) %>%
-  mutate(type="pooled_only")
-IS_all_cvs <- IS_peaks %>% 
-  select(stan, M_area, filename) %>%
-  {full_join(., ., by=c("filename"))} %>%
-  group_by(stan.x, stan.y) %>%
-  mutate(M_area_normed=(M_area.x/M_area.y)*mean(M_area.y)) %>%
-  summarise(calc_cv=cv(M_area_normed)) %>%
-  mutate(type="all_files")
-BMIS_on_IS_gp <- rbind(IS_pooled_cvs, IS_all_cvs) %>%
-  pivot_wider(values_from = calc_cv, names_from = "type") %>%
-  ggplot() +
-  geom_point(aes(x=pooled_only, y=all_files, label=stan.y)) +
-  facet_wrap(~stan.x, scales = "free")
-ggsave(plot=BMIS_on_IS_gp, filename = paste0(output_folder, "BMIS_on_IS.pdf"), 
-       device = "pdf", width = 8.5, height = 8.5)
+# Usually there is some visualization here, see original untargetd QC for the IS_pooled_cvs section.
+## The "stans" column is missing so these are commented out for now.
+
 ```
 
-
 ## Annotate formulae here
-Usually there is a Sirius section, in this case not working on Mac for now.
+
+Usually there is a Sirius section, in this case not working on Mac for now. See original untargeted QC.
 
 ## Annotate classes and structures
-Ditto on the Sirius section not currently working for assigning sirius IDs.
+
+Ditto on the Sirius section not currently working for assigning sirius IDs.See original untargeted QC. 
 Assess classes may work once the above sections are running.
+
+## If possible, convert targeted runs from peak area to umol/vial.
+
+*User action required*
+Enter dilution factor, injection volume, and the filtered volume from the instrument run.
+```{r, include = TRUE}
+Dilution.Factor = 2
+Reconstitution.Volume = 400 # microliters
+Volume.Filtered = 5 # liters
+
+# HILIC
+BMIS_pattern = "BMIS_Output_HILIC"
+QC_pattern = "QC_Output"
+names_pattern = "Names"
+column = "HILIC"
+```
+
+Import required files for quantification.
+```{r Quantify imports, include = TRUE}
+source("src/targ_MSDial_Quantify_Imports.R")
+```
+
+Here, repeat the HILIC duplicates step, see original QC. Then add a check to make sure the filtering makes sense.
+
+Check which kinds of standards have been run.
+
+```{r, include = TRUE}
+Full_data <- CheckStandards2(Full_data)
+```
+
+Quantify. Normally we'd quantify here but because this isn't real we will skip it.
+```{r, include = TRUE}
+source("src/targ_MSDial_Quantify.R")
+```
+
+Save and export files.
+```{r, include = FALSE}
+csvFileName.summed <- paste("mesocenter_pos_output/Quantified_Summary_", column, "_", currentDate, ".csv", sep = "")
+csvFileName.final <- paste("mesocenter_pos_output/Quantified_Measurements_", column, "_", currentDate, ".csv", sep = "")
+csvFileName.perID <- paste("mesocenter_pos_output/Quantified_perSampID_", column, "_", currentDate, ".csv", sep = "")
+
+write.csv(Final.Quantitative.Summed, csvFileName.summed, row.names = FALSE)
+write.csv(Final.Quantitative, csvFileName.final, row.names = FALSE)
+write.csv(Final.All.perSampID, csvFileName.perID, row.names = FALSE)
+```
 
 ## Collect into the clean database
 
-Isolate two most useful dataframes from above code: one to hold the values
-corresponding to each *peak* and one to hold the values corresponding to each
-*feature*.
+Isolate two most useful dataframes from above code: one to hold the values corresponding to each *peak* and one to hold the values corresponding to each *feature*.
 
 ```{r peakvals}
 # Step 0: load relevant data
@@ -569,12 +567,7 @@ write.csv(norm_peaks, paste0(output_folder, "norm_peaks.csv"), row.names = FALSE
 ```
 
 Featurevals then builds on this new norm_peaks data frame.
-Step 1: Group by feature and produce summary statistics
- - mzmed, rtmed, avgarea
-Step 2: Annotate known standards with stan_annotations
-Step 3: Annotate formulae with feature_formulas
-Step 4: Annotate classes with classy_confs (currently removed because annoying)
-Step 5: Annotate hypothetical structures with structure_ids
+Step 1: Group by feature and produce summary statistics - mzmed, rtmed, avgarea Step 2: Annotate known standards with stan_annotations Step 3: Annotate formulae with feature_formulas Step 4: Annotate classes with classy_confs (currently removed because annoying) Step 5: Annotate hypothetical structures with structure_ids
 
 ```{r featurevals}
 # Step 0: Load everything
